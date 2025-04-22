@@ -1,0 +1,1 @@
+pip install rembg==2.0.65  Image==1.5.33 torchvision==0.21.0  omegaconf==2.3.0 einops== 0.8.1 tqdm==4.67.1 huggingface_hub== 0.30.2 diffusers==0.33.1  onnxruntime== 1.21.1   pytorch_lightning== 2.5.1 xatlas== 0.0.10  trimesh==4.6.8  diffrp-nvdiffrast==0.3.3.1 accelerate==1.6.0 transformers== 4.51.3  
