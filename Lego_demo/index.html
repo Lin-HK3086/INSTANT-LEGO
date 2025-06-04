@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OBJ 模型查看器</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden; /* 防止滚动条 */
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f2f5; /* 浅灰色背景 */
+        }
+        #info-box {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(255, 255, 255, 0.9);
+            padding: 15px 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            color: #333;
+            font-size: 1rem;
+            max-width: 90%;
+            z-index: 10;
+        }
+        #loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 1.5rem;
+            z-index: 20;
+            flex-direction: column;
+        }
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid #fff;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div id="info-box" class="rounded-xl">
+        <p>拖动鼠标左键旋转模型，滚动鼠标滚轮缩放。</p>
+        <p>当前加载模型: <span id="model-name">未加载</span></p>
+    </div>
+
+    <div id="loading-overlay" class="rounded-xl">
+        <div class="spinner"></div>
+        <p>正在加载模型...</p>
+    </div>
+
+    <script type="importmap">
+        {
+          "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
+          }
+        }
+    </script>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+        import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        let scene, camera, renderer, controls;
+        let model;
+        let objLoader, mtlLoader; // 在这里声明 objLoader 和 mtlLoader
+
+        const loadingOverlay = document.getElementById('loading-overlay');
+        const modelNameSpan = document.getElementById('model-name');
+
+        // 初始化场景
+        function init() {
+            // 创建场景
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xddeeff); // 设置天空蓝背景
+
+            // 创建相机
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 0, 5); // 设置相机初始位置
+
+            // 创建渲染器
+            renderer = new THREE.WebGLRenderer({ antialias: true }); // 启用抗锯齿
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // 添加光源
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7); // 环境光，柔和照明
+            scene.add(ambientLight);
+
+            const directionalLight1 = new THREE.DirectionalLight(0xffffff, 0.6); // 平行光1
+            directionalLight1.position.set(5, 5, 5).normalize();
+            scene.add(directionalLight1);
+
+            const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.4); // 平行光2
+            directionalLight2.position.set(-5, 5, -5).normalize();
+            scene.add(directionalLight2);
+
+            // 添加轨道控制器 (OrbitControls)
+            // 允许用户通过鼠标拖动、滚动来旋转、平移和缩放模型
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true; // 启用阻尼（惯性）
+            controls.dampingFactor = 0.05;
+            controls.screenSpacePanning = false; // 禁用屏幕空间平移
+            controls.minDistance = 1; // 最小缩放距离
+            controls.maxDistance = 100; // 最大缩放距离
+
+            // 实例化 OBJLoader 和 MTLLoader
+            objLoader = new OBJLoader();
+            mtlLoader = new MTLLoader();
+
+            // 调整窗口大小时重新设置渲染器和相机
+            window.addEventListener('resize', onWindowResize, false);
+
+            // 开始加载模型
+            loadModel();
+        }
+
+        // 窗口大小调整处理函数
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // 加载 OBJ 模型
+        function loadModel() {
+            // 模型的路径，请根据你的文件结构进行修改
+            // 确保你的 OBJ 和 MTL 文件在 `models` 文件夹中
+            const objFileName = 'santa.obj'; // 你的OBJ文件名称
+            const mtlFileName = 'panda.mtl'; // 你的MTL文件名称 (如果存在)
+            const modelsFolder = '';
+
+            modelNameSpan.textContent = objFileName;
+
+            // 首先加载 MTL 文件 (材质文件)
+            mtlLoader.load(
+                modelsFolder + mtlFileName,
+                function (materials) {
+                    materials.preload(); // 预加载材质
+                    objLoader.setMaterials(materials); // 将材质应用到 OBJ 加载器
+
+                    // 然后加载 OBJ 文件
+                    objLoader.load(
+                        modelsFolder + objFileName,
+                        function (object) {
+                            model = object;
+                            scene.add(model); // 将模型添加到场景
+
+                            // 隐藏加载覆盖层
+                            loadingOverlay.style.display = 'none';
+
+                            // 调整模型位置和大小，使其居中并适应视图
+                            const bbox = new THREE.Box3().setFromObject(model);
+                            const center = bbox.getCenter(new THREE.Vector3());
+                            const size = bbox.getSize(new THREE.Vector3());
+
+                            // 将模型中心移到原点
+                            model.position.sub(center);
+
+                            // 计算合适的相机距离以适应模型
+                            const maxDim = Math.max(size.x, size.y, size.z);
+                            const fov = camera.fov * (Math.PI / 180);
+                            let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
+                            cameraZ *= 1.5; // 稍微拉远一点，留出一些边距
+
+                            camera.position.set(0, 0, cameraZ);
+                            controls.target.set(0, 0, 0); // 将控制器目标设置到模型中心
+                            controls.update(); // 更新控制器
+
+                            animate(); // 模型加载完成后开始动画循环
+                        },
+                        // 加载进度回调
+                        function (xhr) {
+                            const percent = Math.round(xhr.loaded / xhr.total * 100);
+                            loadingOverlay.querySelector('p').textContent = `正在加载模型... ${percent}%`;
+                            console.log((xhr.loaded / xhr.total * 100) + '% loaded');
+                        },
+                        // 加载错误回调
+                        function (error) {
+                            console.error('加载 OBJ 模型时出错:', error);
+                            loadingOverlay.querySelector('p').textContent = '加载模型失败！请检查文件路径和名称。';
+                            loadingOverlay.style.backgroundColor = 'rgba(255, 0, 0, 0.7)'; // 错误时显示红色背景
+                        }
+                    );
+                },
+                // MTL 加载进度回调
+                undefined,
+                // MTL 加载错误回调
+                function (error) {
+                    console.warn('加载 MTL 文件时出错:', error);
+                    console.warn('模型将不带材质加载。');
+                    // 如果 MTL 加载失败，仍然尝试加载 OBJ
+                    objLoader.load(
+                        modelsFolder + objFileName,
+                        function (object) {
+                            model = object;
+                            scene.add(model);
+                            loadingOverlay.style.display = 'none';
+                            const bbox = new THREE.Box3().setFromObject(model);
+                            const center = bbox.getCenter(new THREE.Vector3());
+                            const size = bbox.getSize(new THREE.Vector3());
+                            model.position.sub(center);
+                            const maxDim = Math.max(size.x, size.y, size.z);
+                            const fov = camera.fov * (Math.PI / 180);
+                            let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
+                            cameraZ *= 1.5;
+                            camera.position.set(0, 0, cameraZ);
+                            controls.target.set(0, 0, 0);
+                            controls.update();
+                            animate();
+                        },
+                        function (xhr) {
+                            const percent = Math.round(xhr.loaded / xhr.total * 100);
+                            loadingOverlay.querySelector('p').textContent = `正在加载模型 (无材质)... ${percent}%`;
+                            console.log((xhr.loaded / xhr.total * 100) + '% loaded');
+                        },
+                        function (error) {
+                            console.error('加载 OBJ 模型时出错 (无材质):', error);
+                            loadingOverlay.querySelector('p').textContent = '加载模型失败！请检查文件路径和名称。';
+                            loadingOverlay.style.backgroundColor = 'rgba(255, 0, 0, 0.7)';
+                        }
+                    );
+                }
+            );
+        }
+
+        // 动画循环
+        function animate() {
+            requestAnimationFrame(animate); // 循环调用 animate 函数
+
+            controls.update(); // 更新轨道控制器
+
+            renderer.render(scene, camera); // 渲染场景
+        }
+
+        // 确保在窗口加载完成后初始化 Three.js
+        window.onload = init;
+    </script>
+</body>
+</html>
