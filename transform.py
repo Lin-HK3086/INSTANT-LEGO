@@ -1,61 +1,55 @@
 import bpy
-import mathutils
-from statistics import mean
+import bmesh
+from mathutils import Color
 
+def quantize_color(c, precision=2):
+    return tuple(round(v, precision) for v in c)
 
-VERTEX_COLOR_LAYER_NAME = "xuewang"
+def color_to_material(color, material_cache, obj):
+    if color in material_cache:
+        return material_cache[color]
 
+    hex_name = f"mat_{int(color[0]*255):02x}{int(color[1]*255):02x}{int(color[2]*255):02x}"
+    mat = bpy.data.materials.new(name=hex_name)
+    mat.use_nodes = True
+    bsdf = mat.node_tree.nodes.get("Principled BSDF")
+    if bsdf:
+        bsdf.inputs['Base Color'].default_value = (*color, 1.0)
 
-def run_vertex_color_to_materials():
+    obj.data.materials.append(mat)
+    material_cache[color] = len(obj.data.materials) - 1  # Save index
+    return material_cache[color]
 
-    obj = bpy.context.active_object
-    if not obj or obj.type != 'MESH':
-        return
-
+def assign_materials_per_face_fast(obj):
+    bpy.ops.object.mode_set(mode='OBJECT')
     mesh = obj.data
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    bm.faces.ensure_lookup_table()
 
-    if VERTEX_COLOR_LAYER_NAME not in mesh.vertex_colors:
-        print(f"错误：模型上找不到名为 '{VERTEX_COLOR_LAYER_NAME}' 的顶点颜色层。")
+    color_layer = bm.loops.layers.color.active
+    if color_layer is None:
+        print("❌ 没有找到顶点颜色层")
         return
 
-    vertex_colors = mesh.vertex_colors[VERTEX_COLOR_LAYER_NAME]
+    material_cache = {}
 
-    mesh.materials.clear()
-    print("已清空现有材质。")
+    # 遍历面
+    for face in bm.faces:
+        # 提取第一个顶点的颜色并量化
+        color_raw = face.loops[0][color_layer]
+        color = quantize_color((color_raw[0], color_raw[1], color_raw[2]), precision=2)
 
-    for face in mesh.polygons:
-        
-        face_colors = []
-        for loop_index in face.loop_indices:
-            color = vertex_colors.data[loop_index].color
-            face_colors.append(color)
+        mat_index = color_to_material(color, material_cache, obj)
+        face.material_index = mat_index
 
-        if not face_colors:
-            continue
+    bm.to_mesh(mesh)
+    bm.free()
+    print(f"✅ 完成，每种颜色生成一个材质，共 {len(material_cache)} 个材质")
 
-        avg_r = mean(c[0] for c in face_colors)
-        avg_g = mean(c[1] for c in face_colors)
-        avg_b = mean(c[2] for c in face_colors)
-        avg_a = mean(c[3] for c in face_colors)
-        
-
-        avg_color = mathutils.Vector((avg_r, avg_g, avg_b, avg_a))
-
-
-        mat_name = f"Material_Face_{face.index}"
-        new_mat = bpy.data.materials.new(name=mat_name)
-        new_mat.use_nodes = True 
-        
-        principled_bsdf = new_mat.node_tree.nodes.get('Principled BSDF')
-        if principled_bsdf:
-            principled_bsdf.inputs['Base Color'].default_value = avg_color
-
-
-        mesh.materials.append(new_mat)
-        
-        face.material_index = len(mesh.materials) - 1
-
-    print(f"处理完成！共为 {len(mesh.polygons)} 个面创建了独立的材质。")
-
-
-run_vertex_color_to_materials()
+# 执行
+obj = bpy.context.active_object
+if obj and obj.type == 'MESH':
+    assign_materials_per_face_fast(obj)
+else:
+    print("❌ 请先选择一个网格对象")
