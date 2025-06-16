@@ -2,15 +2,12 @@ import bpy
 import bmesh
 import os
 
-# ===== 修改为你的 obj 路径（例如 Blender 中的绝对路径）=====
 obj_path = bpy.path.abspath("//xuewang.obj")
 
-# ===== 数据存储结构 =====
 vertices = []
 colors = []
 faces = []
 
-# ===== 读取 OBJ 文件 =====
 with open(obj_path, 'r') as f:
     for line in f:
         if line.startswith('v '):  # 顶点位置 + 颜色
@@ -25,7 +22,6 @@ with open(obj_path, 'r') as f:
             if len(face) >= 3:
                 faces.append(face)
 
-# ===== 创建网格 =====
 mesh = bpy.data.meshes.new("ImportedOBJ")
 obj = bpy.data.objects.new("ImportedOBJ", mesh)
 bpy.context.collection.objects.link(obj)
@@ -33,16 +29,14 @@ bpy.context.collection.objects.link(obj)
 mesh.from_pydata(vertices, [], faces)
 mesh.update()
 
-# ===== 添加顶点颜色层 =====
 color_layer = mesh.vertex_colors.new(name="Col")
 
-# ===== 为每个 Loop 指定颜色（基于顶点颜色）=====
 color_data = color_layer.data
 loop_index = 0
 for poly in mesh.polygons:
     for loop_idx in poly.loop_indices:
         vert_idx = mesh.loops[loop_idx].vertex_index
         color = colors[vert_idx]
-        color_data[loop_idx].color = (*color, 1.0)  # RGBA
+        color_data[loop_idx].color = (*color, 1.0) 
 
 print(f"✅ 模型导入完成，共 {len(vertices)} 个顶点，{len(faces)} 个面，带顶点颜色")
